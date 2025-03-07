@@ -8,7 +8,7 @@ The **API Gateway** serves as a centralized entry point that routes requests to 
 
 Using an API Gateway in a microservices architecture provides several advantages:
 
-1. **Centralized Authentication & Authorization** - Ensures consistent authentication and authorization across all service requests.
+1. **Centralized Authentication** - Ensures consistent authentication across all service requests.
 2. **Security Enforcement** - Acts as a security layer by restricting access and preventing unauthorized requests.
 3. **Simplified Client Communication** - Clients interact with a single endpoint rather than multiple services.
 4. **Rate Limiting & Throttling** - Helps manage traffic loads and prevent overuse of backend resources.
