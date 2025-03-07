@@ -5,13 +5,24 @@ import getEnvVariable from '@common/utils/env.util';
 import {
   BadGatewayError,
   ServiceUnavailableError,
+  UnauthorizedError,
 } from '@common/errors/http-status.error';
+import jwt from 'jsonwebtoken';
+import jwtConfig from '@common/config/jwt.config';
 
 const app = createApp();
 const originalIAMServiceURL = getEnvVariable('IAM_SERVICE_URL');
 let IAM_SERVICE_URL: string;
 
-describe('GatewayController - proxyToIAM Integration Test', () => {
+const generateValidToken = () => {
+  return jwt.sign({}, jwtConfig.secret, {
+    audience: jwtConfig.audience,
+    issuer: jwtConfig.issuer,
+    expiresIn: '1h',
+  });
+};
+
+describe('GatewayController - proxyToIAM Integration Test with AuthMiddleware', () => {
   beforeEach(() => {
     nock.cleanAll();
     IAM_SERVICE_URL = originalIAMServiceURL;
@@ -22,15 +33,47 @@ describe('GatewayController - proxyToIAM Integration Test', () => {
     nock.restore();
   });
 
-  it('should successfully proxy request to IAM service', async () => {
+  it('should return 401 when Authorization header is missing', async () => {
+    const response = await request(app)
+      .get('/api/iam/example/auth-route')
+      .expect(401);
+
+    expect(response.body).toEqual(
+      expect.objectContaining({
+        message: new UnauthorizedError('Unauthorized - Missing token').message,
+        status: 'error',
+        isOperational: true,
+      }),
+    );
+  });
+
+  it('should return 401 when token is invalid', async () => {
+    const response = await request(app)
+      .get('/api/iam/example/auth-route')
+      .set('Authorization', 'Bearer invalid_token')
+      .expect(401);
+
+    expect(response.body).toEqual(
+      expect.objectContaining({
+        message: new UnauthorizedError('Unauthorized - Invalid token').message,
+        status: 'error',
+        isOperational: true,
+      }),
+    );
+  });
+
+  it('should successfully proxy request to IAM service when token is valid', async () => {
+    const validToken = generateValidToken();
+
     // Mock IAM service response
     nock(IAM_SERVICE_URL)
-      .get('/example/public-route')
+      .get('/example/auth-route')
       .reply(200, { success: true, message: 'IAM response received' });
 
     // Make the request to the gateway
     const response = await request(app)
-      .get('/api/iam/example/public-route')
+      .get('/api/iam/example/auth-route')
+      .set('Authorization', `Bearer ${validToken}`)
       .expect(200);
 
     // Assertions
@@ -41,11 +84,14 @@ describe('GatewayController - proxyToIAM Integration Test', () => {
   });
 
   it('should return 502 if IAM service returns an invalid response', async () => {
+    const validToken = generateValidToken();
+
     // Mock an invalid IAM response (empty body)
-    nock(IAM_SERVICE_URL).get('/example/public-route').reply(200, '');
+    nock(IAM_SERVICE_URL).get('/example/auth-route').reply(200, '');
 
     const response = await request(app)
-      .get('/api/iam/example/public-route')
+      .get('/api/iam/example/auth-route')
+      .set('Authorization', `Bearer ${validToken}`)
       .expect(502);
 
     expect(response.body).toEqual(
@@ -60,12 +106,15 @@ describe('GatewayController - proxyToIAM Integration Test', () => {
   });
 
   it('should return 503 ServiceUnavailableError when IAM service is unreachable', async () => {
+    const validToken = generateValidToken();
     const UNREACHABLE_URL = 'http://localhost:6666'; // Random unused port
 
     // Override IAM_SERVICE_URL for this test
     process.env.IAM_SERVICE_URL = UNREACHABLE_URL;
 
-    const response = await request(app).get('/api/iam/example/public-route');
+    const response = await request(app)
+      .get('/api/iam/example/auth-route')
+      .set('Authorization', `Bearer ${validToken}`);
 
     expect(response.status).toBe(503);
     expect(response.body).toEqual(
@@ -79,12 +128,16 @@ describe('GatewayController - proxyToIAM Integration Test', () => {
   });
 
   it('should return 502 BadGatewayError when IAM service request fails', async () => {
+    const validToken = generateValidToken();
+
     // Mock IAM service failure
     nock(IAM_SERVICE_URL)
-      .get('/example/public-route')
+      .get('/example/auth-route')
       .replyWithError('Simulated failure');
 
-    const response = await request(app).get('/api/iam/example/public-route');
+    const response = await request(app)
+      .get('/api/iam/example/auth-route')
+      .set('Authorization', `Bearer ${validToken}`);
 
     expect(response.status).toBe(502);
     expect(response.body).toEqual(
