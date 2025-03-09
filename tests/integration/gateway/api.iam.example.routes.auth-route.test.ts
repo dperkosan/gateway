@@ -12,6 +12,7 @@ import jwtConfig from '@common/config/jwt.config';
 
 const app = createApp();
 const originalIAMServiceURL = getEnvVariable('IAM_SERVICE_URL');
+const IAM_SERVICE_API_KEY = getEnvVariable('IAM_SERVICE_API_KEY');
 let IAM_SERVICE_URL: string;
 
 const generateValidToken = () => {
@@ -62,12 +63,13 @@ describe('GatewayController - proxyToIAM Integration Test with AuthMiddleware', 
     );
   });
 
-  it('should successfully proxy request to IAM service when token is valid', async () => {
+  it('should successfully proxy request to IAM service when token is valid and x-api-key is set', async () => {
     const validToken = generateValidToken();
 
-    // Mock IAM service response
+    // Mock IAM service response and check x-api-key header
     nock(IAM_SERVICE_URL)
       .get('/example/auth-route')
+      .matchHeader('x-api-key', IAM_SERVICE_API_KEY)
       .reply(200, { success: true, message: 'IAM response received' });
 
     // Make the request to the gateway
@@ -87,7 +89,10 @@ describe('GatewayController - proxyToIAM Integration Test with AuthMiddleware', 
     const validToken = generateValidToken();
 
     // Mock an invalid IAM response (empty body)
-    nock(IAM_SERVICE_URL).get('/example/auth-route').reply(200, '');
+    nock(IAM_SERVICE_URL)
+      .get('/example/auth-route')
+      .matchHeader('x-api-key', IAM_SERVICE_API_KEY)
+      .reply(200, '');
 
     const response = await request(app)
       .get('/api/iam/example/auth-route')
@@ -133,6 +138,7 @@ describe('GatewayController - proxyToIAM Integration Test with AuthMiddleware', 
     // Mock IAM service failure
     nock(IAM_SERVICE_URL)
       .get('/example/auth-route')
+      .matchHeader('x-api-key', IAM_SERVICE_API_KEY)
       .replyWithError('Simulated failure');
 
     const response = await request(app)
@@ -148,5 +154,24 @@ describe('GatewayController - proxyToIAM Integration Test with AuthMiddleware', 
         isOperational: true,
       }),
     );
+  });
+
+  it('should return 502 if IAM service response does not contain x-api-key header', async () => {
+    const validToken = generateValidToken();
+
+    // Mock IAM service response without 'x-api-key'
+    nock(IAM_SERVICE_URL)
+      .get('/example/auth-route')
+      .reply(200, { success: true, message: 'IAM response received' });
+
+    const response = await request(app)
+      .get('/api/iam/example/auth-route')
+      .set('Authorization', `Bearer ${validToken}`)
+      .expect(200);
+
+    expect(response.body).toEqual({
+      success: true,
+      message: 'IAM response received',
+    });
   });
 });

@@ -16,7 +16,13 @@ class GatewayController {
       const headers: AxiosRequestConfig['headers'] = {
         ...req.headers,
         host: new URL(iamServiceUrl).host,
+        'x-api-key': getEnvVariable('IAM_SERVICE_API_KEY'),
       };
+
+      // Remove caching headers
+      delete headers['if-none-match'];
+      delete headers['if-modified-since'];
+      delete headers['cache-control'];
 
       const config: AxiosRequestConfig = {
         method: req.method as AxiosRequestConfig['method'],
